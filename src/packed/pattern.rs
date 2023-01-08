@@ -1,8 +1,6 @@
-use std::cmp;
-use std::fmt;
-use std::mem;
-use std::u16;
-use std::usize;
+use core::{cmp, fmt, mem, u16, usize};
+
+use alloc::{string::String, vec, vec::Vec};
 
 use crate::packed::api::MatchKind;
 
@@ -86,7 +84,8 @@ impl Patterns {
     ///
     /// If the kind is not set, then the default is leftmost-first.
     pub fn set_match_kind(&mut self, kind: MatchKind) {
-        match kind {
+        self.kind = kind;
+        match self.kind {
             MatchKind::LeftmostFirst => {
                 self.order.sort();
             }
@@ -99,7 +98,6 @@ impl Patterns {
                         .reverse()
                 });
             }
-            MatchKind::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -117,7 +115,7 @@ impl Patterns {
 
     /// Returns the approximate total amount of heap used by these patterns, in
     /// units of bytes.
-    pub fn heap_bytes(&self) -> usize {
+    pub fn memory_usage(&self) -> usize {
         self.order.len() * mem::size_of::<PatternID>()
             + self.by_id.len() * mem::size_of::<Vec<u8>>()
             + self.total_pattern_bytes
@@ -166,7 +164,7 @@ impl Patterns {
     ///
     /// Callers must ensure that a pattern with the given identifier exists
     /// before using this method.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(feature = "std", target_arch = "x86_64"))]
     pub unsafe fn get_unchecked(&self, id: PatternID) -> Pattern<'_> {
         Pattern(self.by_id.get_unchecked(id as usize))
     }
@@ -246,7 +244,7 @@ impl<'p> Pattern<'p> {
 
     /// Returns the first `len` low nybbles from this pattern. If this pattern
     /// is shorter than `len`, then this panics.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(feature = "std", target_arch = "x86_64"))]
     pub fn low_nybbles(&self, len: usize) -> Vec<u8> {
         let mut nybs = vec![];
         for &b in self.bytes().iter().take(len) {
