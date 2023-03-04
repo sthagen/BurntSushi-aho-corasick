@@ -234,7 +234,10 @@ impl NFA {
     }
 }
 
-impl Automaton for NFA {
+// SAFETY: 'start_state' always returns a valid state ID, 'next_state' always
+// returns a valid state ID given a valid state ID. We otherwise claim that
+// all other methods are correct as well.
+unsafe impl Automaton for NFA {
     #[inline(always)]
     fn start_state(&self, input: &Input<'_>) -> Result<StateID, MatchError> {
         match input.get_anchored() {
@@ -674,6 +677,21 @@ impl<'a> Compiler<'a> {
                 "expected number of patterns to match pattern ID"
             );
             self.nfa.pattern_lens.push(patlen);
+            // We add the pattern to the prefilter here because the pattern
+            // ID in the prefilter is determined with respect to the patterns
+            // added to the prefilter. That is, it isn't the ID we have here,
+            // but the one determined by its own accounting of patterns.
+            // To ensure they line up, we add every pattern we see to the
+            // prefilter, even if some patterns ultimately are impossible to
+            // match (in leftmost-first semantics specifically).
+            //
+            // Another way of doing this would be to expose an API in the
+            // prefilter to permit setting your own pattern IDs. Or to just use
+            // our own map and go between them. But this case is sufficiently
+            // rare that we don't bother and just make sure they're in sync.
+            if self.builder.prefilter {
+                self.prefilter.add(pat);
+            }
 
             let mut prev = self.nfa.special.start_unanchored_id;
             let mut saw_match = false;
@@ -726,10 +744,6 @@ impl<'a> Compiler<'a> {
             // Once the pattern has been added, log the match in the final
             // state that it reached.
             self.nfa.states[prev].matches.push(pid);
-            // ... and hand it to the prefilter builder, if applicable.
-            if self.builder.prefilter {
-                self.prefilter.add(pat);
-            }
         }
         Ok(())
     }

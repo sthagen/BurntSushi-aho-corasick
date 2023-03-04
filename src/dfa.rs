@@ -26,14 +26,15 @@ use crate::{
 /// A DFA implementation of Aho-Corasick.
 ///
 /// When possible, prefer using [`AhoCorasick`](crate::AhoCorasick) instead of
-/// this type directly. Using an `DFA` directly is typically only necessary
-/// when one needs access to the [`Automaton`] trait implementation.
+/// this type directly. Using a `DFA` directly is typically only necessary when
+/// one needs access to the [`Automaton`] trait implementation.
 ///
 /// This DFA can only be built by first constructing a [`noncontiguous::NFA`].
 /// Both [`DFA::new`] and [`Builder::build`] do this for you automatically, but
 /// [`Builder::build_from_noncontiguous`] permits doing it explicitly.
 ///
-/// A DFA provides the best possible search performance via two mechanisms:
+/// A DFA provides the best possible search performance (in this crate) via two
+/// mechanisms:
 ///
 /// * All states use a dense representation for their transitions.
 /// * All failure transitions are pre-computed such that they are never
@@ -181,7 +182,10 @@ impl DFA {
     }
 }
 
-impl Automaton for DFA {
+// SAFETY: 'start_state' always returns a valid state ID, 'next_state' always
+// returns a valid state ID given a valid state ID. We otherwise claim that
+// all other methods are correct as well.
+unsafe impl Automaton for DFA {
     #[inline(always)]
     fn start_state(&self, input: &Input<'_>) -> Result<StateID, MatchError> {
         // Either of the start state IDs can be DEAD, in which case, support

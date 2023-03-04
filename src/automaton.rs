@@ -80,6 +80,26 @@ pub use crate::util::{
 /// retrieved in one of two ways: calling `Automaton::start_state` or calling
 /// `Automaton::next_state` with a valid state ID.
 ///
+/// # Safety
+///
+/// This trait is not safe to implement so that code may rely on the
+/// correctness of implementations of this trait to avoid undefined behavior.
+/// The primary correctness guarantees are:
+///
+/// * `Automaton::start_state` always returns a valid state ID or an error or
+/// panics.
+/// * `Automaton::next_state`, when given a valid state ID, always returns
+/// a valid state ID for all values of `anchored` and `byte`, or otherwise
+/// panics.
+///
+/// In general, the rest of the methods on `Automaton` need to uphold their
+/// contracts as well. For example, `Automaton::is_dead` should only returns
+/// true if the given state ID is actually a dead state.
+///
+/// Note that currently this crate does not rely on the safety property defined
+/// here to avoid undefined behavior. Instead, this was done to make it
+/// _possible_ to do in the future.
+///
 /// # Example
 ///
 /// This example shows how one might implement a basic but correct search
@@ -114,7 +134,7 @@ pub use crate::util::{
 ///     if aut.is_match(sid) {
 ///         mat = Some(get_match(sid, at));
 ///         // Standard semantics require matches to be reported as soon as
-///         // they're seen. Otherwise, we continue until we need a dead state
+///         // they're seen. Otherwise, we continue until we see a dead state
 ///         // or the end of the haystack.
 ///         if matches!(aut.match_kind(), MatchKind::Standard) {
 ///             return Ok(mat);
@@ -127,7 +147,7 @@ pub use crate::util::{
 ///                 return Ok(mat);
 ///             } else if aut.is_match(sid) {
 ///                 mat = Some(get_match(sid, at + 1));
-///                 // As above, standard semnatics require that we return
+///                 // As above, standard semantics require that we return
 ///                 // immediately once a match is found.
 ///                 if matches!(aut.match_kind(), MatchKind::Standard) {
 ///                     return Ok(mat);
@@ -153,7 +173,7 @@ pub use crate::util::{
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub trait Automaton {
+pub unsafe trait Automaton {
     /// Returns the starting state for the given search configuration.
     ///
     /// Upon success, the state ID returned is guaranteed to be valid for
@@ -591,7 +611,9 @@ pub trait Automaton {
     }
 }
 
-impl<'a, A: Automaton + ?Sized> Automaton for &'a A {
+// SAFETY: This just defers to the underlying 'AcAutomaton' and thus inherits
+// its safety properties.
+unsafe impl<'a, A: Automaton + ?Sized> Automaton for &'a A {
     #[inline(always)]
     fn start_state(&self, input: &Input<'_>) -> Result<StateID, MatchError> {
         (**self).start_state(input)
@@ -965,10 +987,7 @@ impl<'a, A: Automaton, R: std::io::Read> Iterator
 /// I wrote this many moons ago and I no longer grok it. It's likely that it
 /// is way too complicated. One wonders if it would be simpler to just write
 /// something that uses 'next_state' directly via the 'Automaton' trait instead
-/// of trying to use existing search routines. Note though that if one goes
-/// down that path, we'll likely want to deprecate the top-level AhoCorasick
-/// routine because it uses dynamic dispatch, which would make 'next_state'
-/// quite slow!
+/// of trying to use existing search routines.
 #[cfg(feature = "std")]
 #[derive(Debug)]
 struct StreamChunkIter<'a, A, R> {
@@ -1065,6 +1084,7 @@ impl<'a, A: Automaton, R: std::io::Read> StreamChunkIter<'a, A, R> {
                     self.absolute_pos +=
                         self.search_pos - self.buf.min_buffer_len();
                     self.search_pos = self.buf.min_buffer_len();
+                    self.state.at = self.search_pos;
                     self.buf.roll();
                 }
                 match self.buf.fill(&mut self.rdr) {
@@ -1096,11 +1116,43 @@ impl<'a, A: Automaton, R: std::io::Read> StreamChunkIter<'a, A, R> {
             input.set_start(self.search_pos);
             // Note that we use an overlapping search so that we can save the
             // progress of a search between calls. We don't actually report
-            // overlapping matches. (Which we achieve by always providing
+            // overlapping matches. (Which we achieve by always resetting to
             // OverlappingState::start() after a match is seen.)
-            self.aut
-                .try_find_overlapping(&input, &mut self.state)
-                .expect("already checked that no match error can occur here");
+            //
+            // FIXME: We currently call the overlapping impl directly here
+            // so that we can forcefully disable the use of prefilters.
+            // Unfortunately, prefilters don't work in a stream context
+            // currently. Consider, for example, the follow buffer, with a roll
+            // point at the indicating position:
+            //
+            //     bazquux
+            //      ^
+            //
+            // Now let's say we're looking for 'baz' and we have a memmem
+            // prefilter for it. It correctly says, "nope, no match" since all
+            // it sees is a 'b'. So we roll the buffer and get the rest of the
+            // contents. But our search position is now at 'a' *and* we're in a
+            // start state. Whoops. The prefilter runs again, finds nothing and
+            // reports no match.
+            //
+            // Basically, there is a state synchronization issue with a
+            // prefilter reporting "no match" and what the underlying state of
+            // the automaton *should* be by the time it reaches the end of the
+            // buffer. Clearly, we need to be more sophisticated here.
+            //
+            // We should probably roll our own stream searching implementation
+            // just for this.
+            //
+            // This whole bit of code is a mess anyway. I brought it over
+            // from an older version of the crate where we similarly disabled
+            // prefilter optimizations.
+            try_find_overlapping_fwd_imp(
+                self.aut,
+                &input,
+                None,
+                &mut self.state,
+            )
+            .expect("already checked that no match error can occur here");
             match self.state.get_match() {
                 None => {
                     self.search_pos = self.buf.len();
@@ -1348,6 +1400,8 @@ fn try_find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             }
             state.at = input.start();
             state.id = Some(sid);
+            state.next_match_index = None;
+            state.mat = None;
             sid
         }
         Some(sid) => {
@@ -1361,10 +1415,12 @@ fn try_find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     state.mat = Some(get_match(aut, sid, i, state.at + 1));
                     return Ok(());
                 }
+                // Once we've reported all matches at a given position, we need
+                // to advance the search to the next position.
+                state.at += 1;
+                state.next_match_index = None;
+                state.mat = None;
             }
-            // Once we've reported all matches at a given position, we need to
-            // advance the search to the next position.
-            state.at += 1;
             sid
         }
     };
@@ -1402,7 +1458,12 @@ fn try_find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 // treated as special. That is, without a prefilter, is_special
                 // should only return true when the state is a dead or a match
                 // state.
-                debug_assert!(false, "unreachable");
+                //
+                // ... except for one special case: in stream searching, we
+                // currently call overlapping search with a 'None' prefilter,
+                // regardless of whether one exists or not, because stream
+                // searching can't currently deal with prefilters correctly in
+                // all cases.
             }
         }
         state.at += 1;
