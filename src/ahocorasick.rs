@@ -1847,6 +1847,32 @@ impl AhoCorasick {
         self.aut.match_kind()
     }
 
+    /// Returns the length of the shortest pattern matched by this automaton.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use aho_corasick::AhoCorasick;
+    ///
+    /// let ac = AhoCorasick::new(&["foo", "bar", "quux", "baz"]).unwrap();
+    /// assert_eq!(3, ac.min_pattern_len());
+    /// ```
+    ///
+    /// Note that an `AhoCorasick` automaton has a minimum length of `0` if
+    /// and only if it can match the empty string:
+    ///
+    /// ```
+    /// use aho_corasick::AhoCorasick;
+    ///
+    /// let ac = AhoCorasick::new(&["foo", "", "quux", "baz"]).unwrap();
+    /// assert_eq!(0, ac.min_pattern_len());
+    /// ```
+    pub fn min_pattern_len(&self) -> usize {
+        self.aut.min_pattern_len()
+    }
+
     /// Returns the length of the longest pattern matched by this automaton.
     ///
     /// # Examples
@@ -2574,8 +2600,8 @@ impl<A> AcAutomaton for A where
 #[doc(hidden)]
 unsafe impl Automaton for Arc<dyn AcAutomaton> {
     #[inline(always)]
-    fn start_state(&self, input: &Input<'_>) -> Result<StateID, MatchError> {
-        (**self).start_state(input)
+    fn start_state(&self, anchored: Anchored) -> Result<StateID, MatchError> {
+        (**self).start_state(anchored)
     }
 
     #[inline(always)]
@@ -2631,6 +2657,11 @@ unsafe impl Automaton for Arc<dyn AcAutomaton> {
     #[inline(always)]
     fn pattern_len(&self, pid: PatternID) -> usize {
         (**self).pattern_len(pid)
+    }
+
+    #[inline(always)]
+    fn min_pattern_len(&self) -> usize {
+        (**self).min_pattern_len()
     }
 
     #[inline(always)]
