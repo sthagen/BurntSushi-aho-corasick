@@ -1015,7 +1015,7 @@ impl<'a, A: Automaton, R: std::io::Read> Iterator
 /// chunks it can copy and which it needs to replace.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-pub struct StreamChunkIter<'a, A, R> {
+struct StreamChunkIter<'a, A, R> {
     /// The underlying automaton to do the search.
     aut: &'a A,
     /// The source of bytes we read from.
@@ -1245,7 +1245,7 @@ impl<'r> StreamChunk<'r> {
     }
 }
 
-#[inline(always)]
+#[inline(never)]
 pub(crate) fn try_find_fwd<A: Automaton + ?Sized>(
     aut: &A,
     input: &Input<'_>,
@@ -1410,7 +1410,7 @@ fn try_find_fwd_imp<A: Automaton + ?Sized>(
 }
 
 #[inline(never)]
-pub(crate) fn try_find_overlapping_fwd<A: Automaton + ?Sized>(
+fn try_find_overlapping_fwd<A: Automaton + ?Sized>(
     aut: &A,
     input: &Input<'_>,
     state: &mut OverlappingState,
