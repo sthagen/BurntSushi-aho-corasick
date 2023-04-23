@@ -1,6 +1,6 @@
 [package]
 name = "aho-corasick"
-version = "0.7.20"  #:version
+version = "1.0.1"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Fast multiple substring searching."
 homepage = "https://github.com/BurntSushi/aho-corasick"
@@ -41,6 +41,10 @@ logging = ["dep:log"]
 # you can copy the (very small) src/transducer.rs file to your tree. It
 # specifically does not use any private APIs and should work after replacing
 # 'crate::' with 'aho_corasick::'.
+#
+# NOTE: I think my current plan is to flip this around an add an optional
+# dependency on 'aho-corasick' to the 'fst' crate and move the trait impls
+# there. But I haven't gotten around to it yet.
 # transducer = ["fst"]
 
 [dependencies]
