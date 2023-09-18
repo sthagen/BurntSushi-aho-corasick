@@ -1,6 +1,6 @@
 [package]
 name = "aho-corasick"
-version = "1.0.5"  #:version
+version = "1.1.0"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Fast multiple substring searching."
 homepage = "https://github.com/BurntSushi/aho-corasick"
@@ -10,7 +10,7 @@ keywords = ["string", "search", "text", "pattern", "multi"]
 license = "Unlicense OR MIT"
 categories = ["text-processing"]
 autotests = false
-exclude = ["/aho-corasick-debug"]
+exclude = ["/aho-corasick-debug", "/benchmarks", "/tmp"]
 edition = "2021"
 rust-version = "1.60.0"
 
